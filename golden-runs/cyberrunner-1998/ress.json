@@ -1,0 +1,92 @@
+{
+  "projectName": "CyberRunner 1998",
+  "summary": "Single-process Java 8 arcade server. A dedicated platform thread runs a fixed 16 ms tick loop mutating a global static World; one blocking thread per TCP client decodes an undocumented big-endian binary protocol on port 7777. Scores are reported by clients and written to MySQL with string-built SQL. There is no authentication; a hardcoded admin password in the protocol can shut the server down.",
+  "topology": {
+    "components": [
+      { "name": "GameServer", "kind": "entrypoint / acceptor", "responsibility": "Accepts raw TCP connections, spawns one thread per client, owns global client Vector and running flag, broadcasts state packets.", "files": ["src/com/cyberrunner/server/GameServer.java"] },
+      { "name": "GameLoop", "kind": "simulation thread", "responsibility": "Fixed-step physics tick (Thread.sleep(16)), speed ramp, scoring, obstacle spawn cadence, broadcast.", "files": ["src/com/cyberrunner/engine/GameLoop.java"] },
+      { "name": "World / Player", "kind": "domain model", "responsibility": "Mutable game state: players, obstacles, AABB collision, jump rules.", "files": ["src/com/cyberrunner/engine/World.java", "src/com/cyberrunner/engine/Player.java"] },
+      { "name": "Protocol / ClientHandler", "kind": "network adapter", "responsibility": "Binary encode/decode of JOIN, JUMP, SCORE, STATE and ADMIN packets over blocking streams.", "files": ["src/com/cyberrunner/net/Protocol.java", "src/com/cyberrunner/net/ClientHandler.java"] },
+      { "name": "HighScoreStore", "kind": "persistence", "responsibility": "Writes client-reported scores to MySQL via DriverManager + Statement; MD5 signature.", "files": ["src/com/cyberrunner/score/HighScoreStore.java"] }
+    ],
+    "boundaries": [
+      { "from": "Arcade client", "to": "GameServer", "protocol": "TCP :7777 binary (unauthenticated)", "description": "All gameplay commands and admin shutdown cross this boundary without identity." },
+      { "from": "GameLoop", "to": "ClientHandler", "protocol": "in-process synchronized broadcast", "description": "Blocking writes inside a global lock: a slow client stalls the whole tick." },
+      { "from": "HighScoreStore", "to": "MySQL 10.0.0.5:3306", "protocol": "JDBC (root credentials in URL)", "description": "Hardcoded root credentials; SQL injectable through player name." }
+    ]
+  },
+  "stateMachines": [
+    {
+      "name": "Player lifecycle",
+      "states": ["RUNNING", "JUMPING", "DEAD"],
+      "transitions": [
+        { "from": "RUNNING", "to": "JUMPING", "trigger": "JUMP packet while y >= GROUND_Y" },
+        { "from": "JUMPING", "to": "RUNNING", "trigger": "y >= GROUND_Y after gravity integration" },
+        { "from": "RUNNING", "to": "DEAD", "trigger": "AABB collision with obstacle" },
+        { "from": "JUMPING", "to": "DEAD", "trigger": "AABB collision with obstacle" }
+      ]
+    },
+    {
+      "name": "Server lifecycle",
+      "states": ["LISTENING", "STOPPED"],
+      "transitions": [{ "from": "LISTENING", "to": "STOPPED", "trigger": "ADMIN packet with hardcoded password and cmd=1" }]
+    }
+  ],
+  "businessRules": [
+    { "id": "BR-01", "category": "timing", "title": "Fixed 60 Hz tick", "rule": "Simulation advances one step every 16 ms (~62.5 Hz); tick counter increments before any other update.", "source": { "file": "src/com/cyberrunner/engine/GameLoop.java", "lines": "14,27-37" }, "parityTest": "tickCounterAdvancesOncePerStep" },
+    { "id": "BR-02", "category": "physics", "title": "Gravity integration", "rule": "Each tick: vy += 0.6; y += vy (semi-implicit Euler). Ground at y=300 clamps y and zeroes vy.", "source": { "file": "src/com/cyberrunner/engine/GameLoop.java", "lines": "44-50" }, "parityTest": "jumpAppliesVelocityThenGravityInSameTick" },
+    { "id": "BR-03", "category": "physics", "title": "Jump impulse", "rule": "Jump sets vy = -11.0 px/tick and state JUMPING.", "source": { "file": "src/com/cyberrunner/engine/Player.java", "lines": "17-22" }, "parityTest": "jumpAppliesVelocityThenGravityInSameTick" },
+    { "id": "BR-04", "category": "physics", "title": "No double jump", "rule": "Jump is only accepted when state == RUNNING and y >= GROUND_Y.", "source": { "file": "src/com/cyberrunner/engine/Player.java", "lines": "19" }, "parityTest": "noDoubleJumpWhileAirborne" },
+    { "id": "BR-05", "category": "physics", "title": "Speed ramp", "rule": "World speed starts at 4.0 px/tick, increases by 0.001 every tick, capped at 14.0.", "source": { "file": "src/com/cyberrunner/engine/GameLoop.java", "lines": "17-19,39" }, "parityTest": "speedRampsEveryTickAndIsCapped" },
+    { "id": "BR-06", "category": "scoring", "title": "Distance scoring with multiplier", "rule": "score = floor(distance / 10) × (speed > 8 ? 2 : 1), recomputed every tick from cumulative distance.", "source": { "file": "src/com/cyberrunner/engine/GameLoop.java", "lines": "51-53" }, "parityTest": "scoreDoublesAboveEightPixelsPerTick" },
+    { "id": "BR-07", "category": "physics", "title": "Obstacle cadence", "rule": "Spawn when tick % max(30, floor(90 × 4.0 / speed)) == 0, at x=800 with width 16–39 and height 20–49.", "source": { "file": "src/com/cyberrunner/engine/GameLoop.java", "lines": "58-61" }, "parityTest": "spawnIntervalShrinksWithSpeedAndIsFloored" },
+    { "id": "BR-08", "category": "physics", "title": "Collision", "rule": "Player box x∈[80,104); hit when x-overlap and y > 300 − obstacleHeight. Collision sets DEAD; dead players stop updating.", "source": { "file": "src/com/cyberrunner/engine/World.java", "lines": "33-41" }, "parityTest": "recordsServerComputedScoreForFinishedRun" },
+    { "id": "BR-09", "category": "security", "title": "Score submission", "rule": "Legacy accepts any client-claimed score (CWE-602). Modern rule: only the server-computed score of a finished (DEAD) run may be recorded; player names match ^[A-Za-z0-9_-]{1,16}$.", "source": { "file": "src/com/cyberrunner/net/ClientHandler.java", "lines": "53-58" }, "parityTest": "rejectsScoreWhileRunInProgress" }
+  ],
+  "timing": { "model": "Fixed-step, sleep-after-work loop (drifts under load)", "tickHz": 62.5, "tickMs": 16, "notes": "Thread.sleep after work means effective period = 16 ms + step + broadcast time; slow clients block broadcast and stretch ticks. Modern target uses scheduleAtFixedRate(16 ms) for drift-free cadence." },
+  "protocols": [
+    {
+      "name": "CyberRunner wire protocol v1",
+      "transport": "TCP :7777, big-endian DataInput/OutputStream, no framing or auth",
+      "messages": [
+        { "code": "0x01", "name": "JOIN", "direction": "client→server", "legacyLayout": "[u8 op][u8 len][name bytes]", "modernEvent": "STOMP SEND /app/join {\"name\": string}" },
+        { "code": "0x02", "name": "JUMP", "direction": "client→server", "legacyLayout": "[u8 op]", "modernEvent": "STOMP SEND /app/jump {\"playerId\": int}" },
+        { "code": "0x03", "name": "SCORE", "direction": "client→server", "legacyLayout": "[u8 op][i32 score][u8 len][name]", "modernEvent": "REMOVED — replaced by POST /api/scores {playerId, playerName} (server-authoritative)" },
+        { "code": "0x10", "name": "STATE", "direction": "server→client", "legacyLayout": "[u8 op][i64 tick][f32 speed][u8 n]{[i32 id][f32 y][i32 score][u8 state]}×n", "modernEvent": "STOMP MESSAGE /topic/state StateEvent{tick, speed, players[]}" },
+        { "code": "0x7F", "name": "ADMIN", "direction": "client→server", "legacyLayout": "[u8 op][u8 len][password][u8 cmd]", "modernEvent": "REMOVED — operational control via authenticated management plane only" }
+      ],
+      "issues": ["No authentication or integrity", "Admin backdoor with hardcoded password", "Unbounded name length up to 255 bytes, platform default charset", "No message framing/version; one malformed byte desynchronizes the stream"]
+    }
+  ],
+  "vulnerabilities": [
+    { "id": "CVE-2019-17571", "severity": "critical", "component": "log4j:log4j:1.2.17", "description": "Deserialization RCE in SocketServer; Log4j 1.x is EOL.", "remediation": "Replace with SLF4J/Logback via Spring Boot 3.3.4." },
+    { "id": "CVE-2015-6420", "severity": "high", "component": "commons-collections:3.2.1", "description": "InvokerTransformer deserialization gadget.", "remediation": "Remove dependency; use java.util." },
+    { "id": "CVE-2017-3523", "severity": "high", "component": "mysql-connector-java:5.1.38", "description": "Malicious server can compromise client.", "remediation": "Managed JDBC driver via Spring Data JPA." },
+    { "id": "CWE-89", "severity": "critical", "component": "HighScoreStore.submit", "description": "Player name concatenated into INSERT statement.", "remediation": "Spring Data JPA repository (parameterized)." },
+    { "id": "CWE-798", "severity": "critical", "component": "GameServer / HighScoreStore", "description": "Hardcoded admin password and MySQL root credentials (also logged).", "remediation": "Remove admin opcode; credentials from AWS Secrets Manager." },
+    { "id": "CWE-306", "severity": "high", "component": "GameServer :7777", "description": "No authentication on any operation including shutdown.", "remediation": "Spring Security 6 + Cognito JWT at the edge." },
+    { "id": "CWE-602", "severity": "high", "component": "Protocol SCORE (0x03)", "description": "Client-side enforcement of score; arbitrary high-score injection.", "remediation": "Server-authoritative score recording." },
+    { "id": "CWE-328", "severity": "medium", "component": "HighScoreStore.md5", "description": "MD5 used for score signatures.", "remediation": "SHA-256 (FIPS 140-3)." }
+  ],
+  "concurrencyIssues": [
+    { "location": "GameLoop.run", "issue": "Thread.sleep(16) after work causes tick drift and burns a platform thread.", "remediation": "ScheduledExecutorService.scheduleAtFixedRate on a virtual-thread factory." },
+    { "location": "GameServer.broadcast", "issue": "Static synchronized method performs blocking socket writes; one slow client stalls all clients and the tick.", "remediation": "Asynchronous STOMP broker fan-out." },
+    { "location": "GameLoop.world / ClientHandler", "issue": "Global static mutable World shared across threads with coarse synchronized blocks; ClientHandler.nextId++ is a data race.", "remediation": "Encapsulated GameEngine with ReentrantLock and AtomicInteger ids." }
+  ],
+  "complianceFindings": [
+    { "control": "COMP-GDPR-01", "file": "src/com/cyberrunner/score/HighScoreStore.java", "finding": "Cleartext DB root password in JDBC URL.", "remediation": "AWS Secrets Manager reference." },
+    { "control": "COMP-GDPR-02", "file": "src/com/cyberrunner/net/ClientHandler.java", "finding": "Client IP addresses and synthesized email addresses written to logs.", "remediation": "Parameterized SLF4J logging without identifiers." },
+    { "control": "COMP-FEDRAMP-01", "file": "src/com/cyberrunner/score/HighScoreStore.java", "finding": "MessageDigest MD5.", "remediation": "SHA-256." },
+    { "control": "COMP-SLSA-01", "file": "pom.xml", "finding": "Unpinned transitive dependencies resolved from the public internet at build time.", "remediation": "Hermetic pre-warmed build image, offline Maven in VPC-isolated CodeBuild." }
+  ],
+  "modernizationPlan": [
+    { "recipe": "R-BOOT3", "description": "Java 21 + Spring Boot 3.3.4 baseline; drop log4j 1.x, commons-collections, mysql 5.1.", "targets": ["pom.xml"] },
+    { "recipe": "R-VTHREADS", "description": "GameLoop → GameLoopScheduler (fixed-rate, virtual threads).", "targets": ["engine/GameLoopScheduler.java"] },
+    { "recipe": "R-LOCKS", "description": "Global static World → GameEngine with ReentrantLock.", "targets": ["engine/GameEngine.java"] },
+    { "recipe": "R-STOMP", "description": "Binary protocol → STOMP events (JoinCommand, JumpCommand, StateEvent).", "targets": ["net/*", "config/WebSocketConfig.java"] },
+    { "recipe": "R-SERVER-AUTH", "description": "Remove SCORE opcode; ScoreService records server-computed scores only.", "targets": ["score/ScoreService.java"] },
+    { "recipe": "R-JPA", "description": "HighScoreStore → ScoreRepository (Spring Data JPA).", "targets": ["score/ScoreRepository.java"] },
+    { "recipe": "R-AUTHN", "description": "Remove ADMIN opcode; authenticate all endpoints.", "targets": ["config/SecurityConfig.java"] },
+    { "recipe": "R-PARITY-TESTS", "description": "JUnit parity tests for BR-01..BR-09.", "targets": ["src/test/**"] }
+  ]
+}

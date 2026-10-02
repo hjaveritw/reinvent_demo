@@ -1,0 +1,9 @@
+{
+  "id": "banking-monolith",
+  "name": "AcmeBank Core Monolith",
+  "tagline": "Java 8 servlet + JDBC funds-transfer monolith",
+  "description": "A 2006 core-banking transfer service: javax.servlet, string-built JDBC against Oracle with hardcoded credentials, PANs and SSNs stored in cleartext, card numbers and IPs logged, SHA-1 references, double-precision money and Log4j 2.14.1 (Log4Shell).",
+  "language": "Java 8",
+  "groupId": "com.acmebank",
+  "artifactId": "core-banking-2026"
+}

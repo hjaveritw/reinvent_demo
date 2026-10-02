@@ -1,0 +1,9 @@
+{
+  "id": "cyberrunner-1998",
+  "name": "CyberRunner 1998",
+  "tagline": "Java 8 multiplayer arcade socket server",
+  "description": "A 1998-era endless-runner arcade server: raw blocking TCP sockets on port 7777, a Thread.sleep(16) game loop over global mutable state, an undocumented binary protocol, client-trusted high-score submission, MD5 signatures, string-built SQL and EOL Log4j 1.x.",
+  "language": "Java 8",
+  "groupId": "com.cyberrunner",
+  "artifactId": "cyberrunner-2026"
+}

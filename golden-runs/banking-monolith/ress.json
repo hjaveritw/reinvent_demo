@@ -1,0 +1,86 @@
+{
+  "projectName": "AcmeBank Core Monolith",
+  "summary": "Java 8 WAR exposing a single javax.servlet funds-transfer endpoint. TransferService applies undocumented 2006 change-board rules on double-precision balances inside a global synchronized method, persisting via string-built JDBC to Oracle with hardcoded credentials. PANs and SSNs are stored and logged in cleartext.",
+  "topology": {
+    "components": [
+      { "name": "TransferServlet", "kind": "HTTP adapter", "responsibility": "Parses form parameters, logs request including PAN/IP/User-Agent, calls TransferService, hand-builds JSON.", "files": ["src/com/acmebank/web/TransferServlet.java"] },
+      { "name": "TransferService", "kind": "domain service", "responsibility": "Daily limit, card verification, external fee, overdraft rules; balance mutation.", "files": ["src/com/acmebank/service/TransferService.java"] },
+      { "name": "AccountDao", "kind": "persistence", "responsibility": "JDBC find/save against Oracle with string concatenation.", "files": ["src/com/acmebank/dao/AccountDao.java"] },
+      { "name": "Account", "kind": "data model", "responsibility": "Account with owner name, SSN, PAN, balance, transferredToday as plain fields.", "files": ["src/com/acmebank/model/Account.java"] }
+    ],
+    "boundaries": [
+      { "from": "Browser / teller app", "to": "TransferServlet", "protocol": "HTTP form POST (no authN in code)", "description": "Untrusted input reaches the service unvalidated; errors echo exception messages." },
+      { "from": "AccountDao", "to": "Oracle db01.acmebank.local:1521", "protocol": "JDBC thin", "description": "Hardcoded credentials; injectable SQL." }
+    ]
+  },
+  "stateMachines": [
+    {
+      "name": "Transfer request",
+      "states": ["RECEIVED", "VALIDATED", "LIMIT_CHECKED", "CARD_VERIFIED", "FEE_APPLIED", "COMMITTED", "REJECTED"],
+      "transitions": [
+        { "from": "RECEIVED", "to": "REJECTED", "trigger": "amount <= 0 or unknown account" },
+        { "from": "RECEIVED", "to": "VALIDATED", "trigger": "amount > 0 and both accounts exist" },
+        { "from": "VALIDATED", "to": "REJECTED", "trigger": "transferredToday + amount > 10,000.00" },
+        { "from": "VALIDATED", "to": "LIMIT_CHECKED", "trigger": "within daily limit" },
+        { "from": "LIMIT_CHECKED", "to": "REJECTED", "trigger": "amount > 5,000.00 and card mismatch" },
+        { "from": "LIMIT_CHECKED", "to": "CARD_VERIFIED", "trigger": "amount <= 5,000.00 or card matches" },
+        { "from": "CARD_VERIFIED", "to": "FEE_APPLIED", "trigger": "fee computed (0 internal / 0.25% external clamped)" },
+        { "from": "FEE_APPLIED", "to": "REJECTED", "trigger": "balance < amount + fee" },
+        { "from": "FEE_APPLIED", "to": "COMMITTED", "trigger": "balances updated and saved" }
+      ]
+    }
+  ],
+  "businessRules": [
+    { "id": "BR-01", "category": "financial", "title": "Daily transfer limit", "rule": "Sum of transfers from a source account per day must not exceed 10,000.00 (checked as transferredToday + amount > 10,000.00 → reject).", "source": { "file": "src/com/acmebank/service/TransferService.java", "lines": "19,31" }, "parityTest": "dailyLimitOfTenThousandIsEnforced" },
+    { "id": "BR-02", "category": "security", "title": "Card verification threshold", "rule": "Transfers strictly above 5,000.00 require the presented card to match the card on file.", "source": { "file": "src/com/acmebank/service/TransferService.java", "lines": "20,32-34" }, "parityTest": "cardVerificationRequiredAboveFiveThousand" },
+    { "id": "BR-03", "category": "financial", "title": "External transfer fee", "rule": "Destination ids prefixed EXT incur fee = 0.25% of amount clamped to [1.00, 25.00]; internal transfers are free.", "source": { "file": "src/com/acmebank/service/TransferService.java", "lines": "35-38" }, "parityTest": "externalFeeIsQuarterPercentClampedToMinAndMax" },
+    { "id": "BR-04", "category": "financial", "title": "No overdraft", "rule": "Reject when balance < amount + fee.", "source": { "file": "src/com/acmebank/service/TransferService.java", "lines": "39" }, "parityTest": "overdraftIsRejected" },
+    { "id": "BR-05", "category": "validation", "title": "Positive amounts", "rule": "amount must be > 0.", "source": { "file": "src/com/acmebank/service/TransferService.java", "lines": "26" }, "parityTest": "nonPositiveAmountsAreRejected" },
+    { "id": "BR-06", "category": "data", "title": "Audit trail", "rule": "Modern requirement (COMP-HIPAA-02): every account mutation records created/updated timestamps via auditing listeners.", "source": { "file": "src/com/acmebank/dao/AccountDao.java", "lines": "29-34" }, "parityTest": "auditTimestampsArePopulated" }
+  ],
+  "timing": { "model": "Synchronous request/response; global synchronized transfer()", "notes": "TransferService.transfer is synchronized on a single servlet-scoped instance — all transfers are serialized JVM-wide, but there is no DB transaction, so concurrent JVMs can double-spend. Modern target uses @Transactional with optimistic @Version locking." },
+  "protocols": [
+    {
+      "name": "Transfer HTTP API",
+      "transport": "HTTP POST application/x-www-form-urlencoded",
+      "messages": [
+        { "code": "POST /transfer", "name": "Transfer", "direction": "client→server", "legacyLayout": "from, to, amount, cardNumber form fields", "modernEvent": "POST /api/transfers application/json TransferRequest{from,to,amount,cardNumber} (Bean Validation)" },
+        { "code": "200", "name": "Transfer OK", "direction": "server→client", "legacyLayout": "{\"status\":\"OK\",\"ref\":<sha1>}", "modernEvent": "TransferResult{reference(UUID), amount, fee}" },
+        { "code": "500", "name": "Error", "direction": "server→client", "legacyLayout": "{\"error\": exception message (may contain PAN)}", "modernEvent": "422 RFC 7807 ProblemDetail without sensitive data" }
+      ],
+      "issues": ["Exception messages echoed to clients (card number leaked on verification failure)", "No authentication or CSRF protection", "Hand-built JSON is injectable"]
+    }
+  ],
+  "vulnerabilities": [
+    { "id": "CVE-2021-44228", "severity": "critical", "component": "log4j-core:2.14.1", "description": "Log4Shell JNDI RCE — exploitable via logged User-Agent header.", "remediation": "Spring Boot 3.3.4 logging (SLF4J/Logback)." },
+    { "id": "CVE-2021-45046", "severity": "critical", "component": "log4j-core:2.14.1", "description": "Incomplete Log4Shell fix.", "remediation": "Same as above." },
+    { "id": "CVE-2019-14379", "severity": "critical", "component": "jackson-databind:2.9.8", "description": "Polymorphic deserialization gadget.", "remediation": "Managed jackson-databind 2.17.x." },
+    { "id": "CVE-2022-22965", "severity": "critical", "component": "spring-webmvc:4.3.18", "description": "Spring4Shell (EOL line).", "remediation": "Spring Framework 6.1." },
+    { "id": "CWE-89", "severity": "critical", "component": "AccountDao", "description": "Account id concatenated into SELECT/UPDATE.", "remediation": "Spring Data JPA." },
+    { "id": "CWE-798", "severity": "critical", "component": "AccountDao", "description": "Hardcoded Oracle credentials.", "remediation": "AWS Secrets Manager." },
+    { "id": "CWE-312", "severity": "high", "component": "Account", "description": "PAN and SSN stored in cleartext.", "remediation": "Tokenize PAN; AES-256-GCM converter for SSN/name." },
+    { "id": "CWE-328", "severity": "medium", "component": "TransferService.sha1", "description": "SHA-1 transaction references.", "remediation": "Random UUID references." }
+  ],
+  "concurrencyIssues": [
+    { "location": "TransferService.transfer", "issue": "JVM-wide synchronized method serializes all transfers yet provides no cross-node or DB atomicity (lost updates / double spend).", "remediation": "@Transactional + optimistic locking (@Version)." }
+  ],
+  "complianceFindings": [
+    { "control": "COMP-GDPR-01", "file": "src/com/acmebank/dao/AccountDao.java", "finding": "Hardcoded DB password.", "remediation": "Secrets Manager reference." },
+    { "control": "COMP-GDPR-02", "file": "src/com/acmebank/web/TransferServlet.java", "finding": "Logs PAN, client IP and User-Agent.", "remediation": "Parameterized logging without identifiers; PiiMasker." },
+    { "control": "COMP-PCI-01", "file": "src/com/acmebank/model/Account.java", "finding": "PAN stored and compared in cleartext; echoed in exception message.", "remediation": "SHA-256 token + Luhn validation; generic errors." },
+    { "control": "COMP-HIPAA-01", "file": "src/com/acmebank/model/Account.java", "finding": "SSN/owner name unencrypted at rest.", "remediation": "JPA AES-256-GCM AttributeConverter." },
+    { "control": "COMP-HIPAA-02", "file": "src/com/acmebank/dao/AccountDao.java", "finding": "Mutations are not audited.", "remediation": "@EntityListeners(AuditingEntityListener)." },
+    { "control": "COMP-FEDRAMP-01", "file": "src/com/acmebank/service/TransferService.java", "finding": "SHA-1 digest.", "remediation": "Remove; UUID reference." }
+  ],
+  "modernizationPlan": [
+    { "recipe": "R-BOOT3", "description": "Spring Boot 3.3.4 / Java 21; remove log4j-core 2.14.1, jackson 2.9.8, spring-webmvc 4.3.", "targets": ["pom.xml"] },
+    { "recipe": "R-JAKARTA", "description": "javax.servlet → Spring MVC on Jakarta EE 10.", "targets": ["web/TransferController.java"] },
+    { "recipe": "R-JPA", "description": "AccountDao → AccountRepository.", "targets": ["repository/AccountRepository.java"] },
+    { "recipe": "R-BIGDECIMAL", "description": "double → BigDecimal(19,2), HALF_EVEN.", "targets": ["service/TransferService.java", "model/Account.java"] },
+    { "recipe": "R-PAN-TOKEN", "description": "Card number → SHA-256 token.", "targets": ["security/CardTokenizer.java"] },
+    { "recipe": "R-FIELD-ENCRYPT", "description": "SSN/owner name encrypted at rest.", "targets": ["security/EncryptedStringConverter.java"] },
+    { "recipe": "R-AUDIT", "description": "Auditing listeners on Account.", "targets": ["model/Account.java"] },
+    { "recipe": "R-SLF4J-MASK", "description": "Masked parameterized logging.", "targets": ["web/TransferController.java", "logging/PiiMasker.java"] },
+    { "recipe": "R-PARITY-TESTS", "description": "Parity tests BR-01..BR-06.", "targets": ["src/test/**"] }
+  ]
+}

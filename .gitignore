@@ -1,0 +1,8 @@
+node_modules
+dist
+cdk.out
+target
+*.log
+.DS_Store
+services/src/generated
+web/src/generated
