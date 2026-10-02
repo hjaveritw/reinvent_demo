@@ -1,0 +1,90 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-ink-950: #050816;
+  --color-ink-925: #070c1c;
+  --color-ink-900: #0b1224;
+  --color-ink-850: #0f172b;
+  --color-ink-800: #141d33;
+  --color-line: #1d2741;
+  --color-line-strong: #2a3655;
+  --color-fg: #eef1f7;
+  --color-fg-muted: #9aa3b8;
+  --color-fg-dim: #6b7590;
+  --color-amber: #f5c518;
+  --color-amber-soft: #f7d34a;
+  --color-amber-deep: #2a2008;
+  --color-teal: #2dd4bf;
+  --color-ok: #34d399;
+  --color-bad: #f87171;
+  --color-warn: #fbbf24;
+  --color-cyan: #22d3ee;
+}
+
+:root { color-scheme: dark; }
+html, body, #root { min-height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-ink-950);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: color-mix(in srgb, var(--color-amber) 35%, transparent); }
+*:focus-visible { outline: 2px solid var(--color-amber); outline-offset: 2px; border-radius: 6px; }
+
+.eyebrow { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.14em; font-weight: 600; font-size: 0.8rem; }
+.label { text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; font-size: 0.75rem; color: var(--color-fg-muted); }
+.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+
+/* Amplify Authenticator dark theme */
+[data-amplify-authenticator] {
+  --amplify-colors-background-primary: var(--color-ink-900);
+  --amplify-colors-background-secondary: var(--color-ink-850);
+  --amplify-colors-font-primary: var(--color-fg);
+  --amplify-colors-font-secondary: var(--color-fg-muted);
+  --amplify-colors-font-interactive: var(--color-amber);
+  --amplify-colors-border-primary: var(--color-line-strong);
+  --amplify-components-button-primary-background-color: var(--color-amber);
+  --amplify-components-button-primary-color: #111;
+  --amplify-components-button-primary-hover-background-color: var(--color-amber-soft);
+  --amplify-components-button-primary-hover-color: #111;
+  --amplify-components-button-primary-focus-background-color: var(--color-amber-soft);
+  --amplify-components-button-primary-focus-color: #111;
+  --amplify-components-button-primary-active-background-color: var(--color-amber);
+  --amplify-components-button-primary-active-color: #111;
+  --amplify-components-button-link-color: var(--color-amber);
+  --amplify-components-button-link-hover-background-color: transparent;
+  --amplify-components-button-link-hover-color: var(--color-amber-soft);
+  --amplify-components-fieldcontrol-color: var(--color-fg);
+  --amplify-components-fieldcontrol-border-color: var(--color-line-strong);
+  --amplify-components-fieldcontrol-focus-border-color: var(--color-amber);
+  --amplify-components-authenticator-router-background-color: var(--color-ink-900);
+  --amplify-components-authenticator-router-border-color: var(--color-line);
+  --amplify-components-tabs-item-active-color: var(--color-amber);
+  --amplify-components-tabs-item-active-border-color: var(--color-amber);
+  --amplify-components-heading-color: var(--color-fg);
+  --amplify-components-text-color: var(--color-fg);
+  --amplify-components-field-label-color: var(--color-fg-muted);
+  --amplify-components-passwordfield-button-color: var(--color-fg-muted);
+  --amplify-radii-small: 10px;
+  --amplify-radii-medium: 12px;
+  --amplify-fonts-default-variable: var(--font-sans);
+}
+[data-amplify-authenticator] [data-amplify-router] { border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px -30px rgba(0,0,0,.6); }
+[data-amplify-authenticator] input { background: var(--color-ink-950); }
+
+.prd h1 { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 .25rem; }
+.prd h2 { font-size: 1.35rem; font-weight: 700; margin: 2.25rem 0 .75rem; padding-top: 1.25rem; border-top: 1px solid var(--color-line); }
+.prd h3 { font-size: 1.05rem; font-weight: 700; margin: 1.5rem 0 .5rem; color: var(--color-amber); }
+.prd p, .prd li { color: #cfd5e3; line-height: 1.7; }
+.prd ul { list-style: disc; padding-left: 1.25rem; margin: .5rem 0; }
+.prd ol { list-style: decimal; padding-left: 1.25rem; margin: .5rem 0; }
+.prd strong { color: var(--color-fg); }
+.prd code { font-family: var(--font-mono); font-size: .85em; background: var(--color-ink-800); padding: .1rem .35rem; border-radius: 6px; }

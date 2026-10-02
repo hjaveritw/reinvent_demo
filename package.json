@@ -1,12 +1,22 @@
 {
   "name": "aws-transform-studio",
   "private": true,
-  "workspaces": ["services", "infra", "web"],
+  "workspaces": [
+    "services",
+    "infra",
+    "web"
+  ],
   "scripts": {
     "gen": "node scripts/gen-bundle.mjs",
     "test": "npm run gen && npm -w services test && npm -w web test",
     "build": "npm run gen && npm -w web run build",
     "synth": "npm run build && npm -w infra run synth",
     "deploy": "npm run build && npm -w infra run deploy"
+  },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "3.4.16"
+    },
+    "dompurify": "3.4.16"
   }
 }
