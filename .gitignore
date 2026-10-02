@@ -6,3 +6,4 @@ target
 .DS_Store
 services/src/generated
 web/src/generated
+infra/cdk.out

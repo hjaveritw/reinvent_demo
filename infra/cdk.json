@@ -1,0 +1,9 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "context": {
+    "@aws-cdk/core:bootstrapQualifier": "atsdemo",
+    "modelId": "eu.anthropic.claude-sonnet-5-5",
+    "modelName": "anthropic.claude-sonnet-5-5",
+    "adminEmail": ""
+  }
+}

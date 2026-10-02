@@ -28,7 +28,7 @@ const LINE_RULES: LineRule[] = [
 ];
 
 const SECRET_PATTERNS: { pattern: RegExp; message: string }[] = [
-  { pattern: /(password|passwd|pwd|secret)\s*=\s*"([^"]{4,})"/i, message: 'Hardcoded credential literal' },
+  { pattern: /\b(password|passwd|pwd|pw|secret|api_?key|token)\s*=\s*"([^"]{4,})"/i, message: 'Hardcoded credential literal' },
   { pattern: /[?&;](password|pwd)=([^&;"\s]{4,})/i, message: 'Credential embedded in connection URL' },
   { pattern: /\b[A-Z_]*PASSWORD\s*=\s*"([^"]{4,})"/, message: 'Hardcoded password constant' },
 ];
